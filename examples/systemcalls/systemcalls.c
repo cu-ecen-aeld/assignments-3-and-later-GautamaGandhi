@@ -1,4 +1,12 @@
 #include "systemcalls.h"
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,6 +24,12 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    int status = system(cmd);
+
+    if (status == -1) {
+        printf("Error calling system() function with error %d\n", errno);
+        return false;
+    }
 
     return true;
 }
@@ -58,7 +72,47 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    pid_t child_pid;
 
+    child_pid = fork();
+
+    if (child_pid == -1) { // Error in process creation
+        perror("Fork");
+        return false;
+    }
+    else if (child_pid == 0) { // Child Process
+        int ret;
+        ret = execv(command[0], command);
+
+        if (ret == -1) {
+            perror("execv");
+        }
+        printf("Error executing command: execv with error: %d \n", errno);
+        exit(1);
+    } else {
+        int status;
+        pid_t wait_pid = waitpid(child_pid, &status, 0);
+
+        if (wait_pid == -1) {
+            printf("Error executing command: waitpid with error: %d \n", errno);
+            perror("wait");
+            return false;
+        } else {
+            // Check if process exited normally
+            if (WIFEXITED (status)) {
+                // Check the exit status of the process
+               if (WEXITSTATUS(status) == 1) {
+                return false;
+               } else if (WEXITSTATUS(status) == 0) {
+                return true;
+               }
+            } else {
+                return false;
+            }
+        }      
+    }
+
+    
     va_end(args);
 
     return true;
@@ -92,6 +146,56 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    // Child_pid
+    int child_pid;
+
+    // Opening outputfile 
+    int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC, 0644); 
+
+    // Check for error on open and return false 
+    if (fd == -1) {
+        perror("open");
+        return false;
+    }
+
+    // Create new child process
+    switch(child_pid = fork()) {
+        case -1: // Error case
+            perror("fork"); 
+            return false;
+
+        case 0: // Child Process
+            if (dup2(fd, 1) < 0) { 
+                perror("dup2"); 
+                exit(1); 
+            }
+            close(fd);
+            execv(command[0], command); 
+            perror("execv"); 
+            exit(1); 
+
+        default:
+            close(fd);
+            int status;
+            pid_t wait_pid = waitpid(child_pid, &status, 0);
+
+            if (wait_pid == -1) {
+                perror("wait");
+                return false;
+            } else {
+                // Check if process exited normally
+                if (WIFEXITED (status)) {
+                    // Checking status of process
+                    if (WEXITSTATUS(status) == 1) {
+                        return false;
+                    } else if (WEXITSTATUS(status) == 0) {
+                        return true;
+                    }
+                } else {
+                    return false;
+                }
+            }
+    }
 
     va_end(args);
 
