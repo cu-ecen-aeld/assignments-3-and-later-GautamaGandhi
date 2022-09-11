@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # AESD Assignment 1 
 # Author: Gautama Gandhi

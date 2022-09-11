@@ -87,12 +87,13 @@ echo "${SYSROOT}"
 
 # Currently in OUTDIR/rootfs/
 cp -a $SYSROOT/lib/ld-linux-aarch64.so.1 lib
-cp -a $SYSROOT/lib64/libm.so.6 lib
-cp -a $SYSROOT/lib64/libresolv.so.2 lib
-cp -a $SYSROOT/lib64/libc.so.6 lib
-cp -a $SYSROOT/lib64/libm-2.31.so lib
-cp -a $SYSROOT/lib64/libresolv-2.31.so lib
-cp -a $SYSROOT/lib64/libc-2.31.so lib
+cp -a $SYSROOT/lib64/ld-2.31.so lib64
+cp -a $SYSROOT/lib64/libm.so.6 lib64
+cp -a $SYSROOT/lib64/libresolv.so.2 lib64
+cp -a $SYSROOT/lib64/libc.so.6 lib64
+cp -a $SYSROOT/lib64/libm-2.31.so lib64
+cp -a $SYSROOT/lib64/libresolv-2.31.so lib64
+cp -a $SYSROOT/lib64/libc-2.31.so lib64
 
 cd ${OUTDIR}/rootfs
 # TODO: Make device nodes
@@ -111,6 +112,8 @@ cp ${FINDER_APP_PATH}/finder.sh ${OUTDIR}/rootfs/home
 cp ${FINDER_APP_PATH}/finder-test.sh ${OUTDIR}/rootfs/home
 cp ${FINDER_APP_PATH}/writer.c ${OUTDIR}/rootfs/home
 cp ${FINDER_APP_PATH}/writer ${OUTDIR}/rootfs/home
+cp -r ${FINDER_APP_PATH}/conf/ ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_PATH}/autorun-qemu.sh ${OUTDIR}/rootfs/home
 
 # TODO: Chown the root directory
 cd ${OUTDIR}/rootfs
