@@ -101,19 +101,18 @@ sudo mknod -m 666 dev/null c 1 3
 sudo mknod -m 600 dev/console c 5 1
 
 # TODO: Clean and build the writer utility
-FINDER_APP_PATH="/home/gautama/Desktop/AESD_Assignments/Assignments/assignments-3-and-later-GautamaGandhi/finder-app"
-cd ${FINDER_APP_PATH}
+cd ${FINDER_APP_DIR}
 make clean
 make CROSS_COMPILE=${CROSS_COMPILE}
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
-cp ${FINDER_APP_PATH}/finder.sh ${OUTDIR}/rootfs/home
-cp ${FINDER_APP_PATH}/finder-test.sh ${OUTDIR}/rootfs/home
-cp ${FINDER_APP_PATH}/writer.c ${OUTDIR}/rootfs/home
-cp ${FINDER_APP_PATH}/writer ${OUTDIR}/rootfs/home
-cp -r ${FINDER_APP_PATH}/conf/ ${OUTDIR}/rootfs/home
-cp ${FINDER_APP_PATH}/autorun-qemu.sh ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/finder.sh ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/finder-test.sh ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/writer.c ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/writer ${OUTDIR}/rootfs/home
+cp -r ${FINDER_APP_DIR}/conf/ ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/autorun-qemu.sh ${OUTDIR}/rootfs/home
 
 # TODO: Chown the root directory
 cd ${OUTDIR}/rootfs
