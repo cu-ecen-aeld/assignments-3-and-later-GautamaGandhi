@@ -52,6 +52,10 @@ done
 
 OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
 
+FILEPATH="/tmp/assignment4-result.txt"
+
+echo ${OUTPUTSTRING} > ${FILEPATH}
+
 set +e
 echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
