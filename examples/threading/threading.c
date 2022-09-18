@@ -56,6 +56,7 @@ void* threadfunc(void* thread_param)
 
 bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int wait_to_obtain_ms, int wait_to_release_ms)
 {
+    // Dynamic allocation for thread_data structure and initialisation using function parameters
     struct thread_data *thread_param = (struct thread_data *)malloc(sizeof(struct thread_data));
     thread_param->wait_to_obtain_ms = wait_to_obtain_ms;
     thread_param->wait_to_release_ms = wait_to_release_ms;
@@ -63,6 +64,7 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
     thread_param->thread = *thread;
     thread_param->error_status = 0;
 
+    // Creating a thread to run threadfunc with parameters thread_param
     int ret = pthread_create(thread, NULL, threadfunc, thread_param);
     if (ret != 0) {
         ERROR_LOG("Error in pthread_create with err number: %d", errno);

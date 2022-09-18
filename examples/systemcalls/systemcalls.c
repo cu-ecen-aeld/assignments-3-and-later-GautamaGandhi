@@ -101,9 +101,9 @@ bool do_exec(int count, ...)
             // Check if process exited normally
             if (WIFEXITED (status)) {
                 // Check the exit status of the process
-               if (WEXITSTATUS(status) == 1) {
+               if (WEXITSTATUS(status) != 0) {
                 return false;
-               } else if (WEXITSTATUS(status) == 0) {
+               } else {
                 return true;
                }
             } else {
@@ -186,9 +186,9 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
                 // Check if process exited normally
                 if (WIFEXITED (status)) {
                     // Checking status of process
-                    if (WEXITSTATUS(status) == 1) {
+                    if (WEXITSTATUS(status) != 0) {
                         return false;
-                    } else if (WEXITSTATUS(status) == 0) {
+                    } else {
                         return true;
                     }
                 } else {
