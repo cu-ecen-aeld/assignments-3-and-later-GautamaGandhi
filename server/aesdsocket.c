@@ -22,6 +22,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <pthread.h>
 
 #define BACKLOG 10 // Setting 10 as the connection request limit while listening
 #define INITIAL_BUFFER_SIZE 1024 // Buffer size for receive and storage bufferss
@@ -42,7 +43,7 @@ void sig_handler(int signum)
         syslog(LOG_DEBUG, "Caught signal SIGTERM, exiting");
 
     // Freeing storage buffer allocated memory 
-    free(storage_buffer);
+    // free(storage_buffer);
 
     //Closing socketfd FD
     int status = close(socketfd);
@@ -195,7 +196,7 @@ int main(int argc, char **argv)
     char buffer[INITIAL_BUFFER_SIZE];
 
     // Dynamically allocated storage buffer to store values received from the socket
-    storage_buffer = (char *)malloc(INITIAL_BUFFER_SIZE);
+    // storage_buffer = (char *)malloc(INITIAL_BUFFER_SIZE);
 
     // Variable to store size of storage buffer
     int storage_buffer_size = INITIAL_BUFFER_SIZE;
@@ -221,6 +222,10 @@ int main(int argc, char **argv)
     // String to hold the IP address of the client; used when printing logs
     char address_string[INET_ADDRSTRLEN];
 
+    // Incomplete Flag
+   // int incomplete_flag = 0;
+    int previous_byte_count = 0;
+
     while(1) {
 
         // Continuously restarting connections in the while(1) loop
@@ -229,7 +234,11 @@ int main(int argc, char **argv)
         if (new_fd == -1) {
             perror("accept");
             continue;
-        } 
+        } else {
+            storage_buffer = (char *)malloc(INITIAL_BUFFER_SIZE);
+            storage_buffer_size_count = 1;
+            storage_buffer_size = INITIAL_BUFFER_SIZE;
+        }
 
         // Using sock_addr_in and inet_ntop function to print the IP address of the accepted client connection
         // Reference: https://stackoverflow.com/questions/2104495/extract-ip-from-connection-that-listen-and-accept-in-socket-programming-in-linux
@@ -241,8 +250,21 @@ int main(int argc, char **argv)
 
             printf("Bytes Received = %d\n", bytes_received);
 
+            // Edge case
+            if (previous_byte_count + bytes_received > storage_buffer_size) {
+                char *temp_ptr  = (char *)realloc(storage_buffer, (storage_buffer_size + INITIAL_BUFFER_SIZE));
+                if (temp_ptr) {
+                    storage_buffer = temp_ptr;
+                    storage_buffer_size += INITIAL_BUFFER_SIZE;
+                    storage_buffer_size_count += 1;
+                } else {
+                    printf("Unable to allocate memory\n");
+                }
+            }
+
+            int i;
             // Iterating over bytes received to check for "\n" character
-            for (int i = 0; i < bytes_received; i++) {
+            for (i = 0; i < bytes_received; i++) {
                 if (buffer[i] == '\n') {
                     packet_complete_flag = 1;
                     temp_iterator = i+1;
@@ -251,21 +273,33 @@ int main(int argc, char **argv)
             }
 
             // Copying from receive buffer to storage buffer 
-            memcpy(storage_buffer + (storage_buffer_size_count - 1)*INITIAL_BUFFER_SIZE, buffer, bytes_received);
+            memcpy(storage_buffer + (storage_buffer_size_count - 1)*INITIAL_BUFFER_SIZE + previous_byte_count, buffer, bytes_received);
+
+            // // Copying from receive buffer to storage buffer 
+            // memcpy(storage_buffer + (storage_buffer_size_count - 1)*INITIAL_BUFFER_SIZE, buffer, bytes_received);
 
             // Check if data packet is complete and assign bytes to write based on temporary iterator
             if (packet_complete_flag == 1) {
-                bytes_to_write = (storage_buffer_size_count - 1)*INITIAL_BUFFER_SIZE + temp_iterator;
+                bytes_to_write = (storage_buffer_size_count - 1)*INITIAL_BUFFER_SIZE + temp_iterator + previous_byte_count;
+                previous_byte_count = 0;
                 break;
             } else {
-                // Increasing size of storage buffer by INITIAL_BUFFER_SIZE amount if no "\n" character found in buffer
-                char *temp_ptr  = (char *)realloc(storage_buffer, (storage_buffer_size + INITIAL_BUFFER_SIZE));
-                if (temp_ptr) {
-                    storage_buffer = temp_ptr;
-                    storage_buffer_size += INITIAL_BUFFER_SIZE;
-                    storage_buffer_size_count += 1;
-                } else {
-                    printf("Unable to allocate memory\n");
+
+                if ((i == bytes_received) && (bytes_received < INITIAL_BUFFER_SIZE)) {
+                    // incomplete_flag = 1;
+                    previous_byte_count += bytes_received;
+                }
+
+                else if (bytes_received == INITIAL_BUFFER_SIZE){
+                    // Increasing size of storage buffer by INITIAL_BUFFER_SIZE amount if no "\n" character found in buffer
+                    char *temp_ptr  = (char *)realloc(storage_buffer, (storage_buffer_size + INITIAL_BUFFER_SIZE));
+                    if (temp_ptr) {
+                        storage_buffer = temp_ptr;
+                        storage_buffer_size += INITIAL_BUFFER_SIZE;
+                        storage_buffer_size_count += 1;
+                    } else {
+                        printf("Unable to allocate memory\n");
+                    }
                 }
             }
         }
@@ -304,9 +338,10 @@ int main(int argc, char **argv)
             free(read_buffer);
 
             // Cleanup and reallocation of buffer to original size
-            storage_buffer = realloc(storage_buffer, INITIAL_BUFFER_SIZE);
-            storage_buffer_size_count = 1;
-            storage_buffer_size = INITIAL_BUFFER_SIZE;
+            free(storage_buffer);
+            // storage_buffer = realloc(storage_buffer, INITIAL_BUFFER_SIZE);
+            // storage_buffer_size_count = 1;
+            // storage_buffer_size = INITIAL_BUFFER_SIZE;
         }
 
         close(new_fd);
