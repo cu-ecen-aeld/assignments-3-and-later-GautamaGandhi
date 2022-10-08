@@ -25,7 +25,8 @@
 #include <pthread.h>
 
 #define BACKLOG 10 // Setting 10 as the connection request limit while listening
-#define INITIAL_BUFFER_SIZE 1024 // Buffer size for receive and storage bufferss
+#define INITIAL_BUFFER_SIZE 1024 // Buffer size for receive and storage buffers
+#define WRITE_BUFFER_SIZE 512 // Write buffer size
 
 // Global Variables
 int socketfd; // Socket File Descriptor
@@ -286,7 +287,6 @@ int main(int argc, char **argv)
             } else {
 
                 if ((i == bytes_received) && (bytes_received < INITIAL_BUFFER_SIZE)) {
-                    // incomplete_flag = 1;
                     previous_byte_count += bytes_received;
                 }
 
@@ -317,25 +317,60 @@ int main(int argc, char **argv)
 
             lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
 
-            char *read_buffer = (char *)malloc(file_size);
+            // if (file_size > )
+
+            // TEST
+            char *read_buffer = NULL;
+
+            if (file_size < WRITE_BUFFER_SIZE) {
+                read_buffer = (char *)malloc(file_size);
+            } else {
+                read_buffer = (char *)malloc(WRITE_BUFFER_SIZE);
+            }
 
             if (read_buffer == NULL) {
                 printf("Unable to allocate memory to read_buffer\n");
             }
 
+            ssize_t bytes_read;
+            int bytes_sent;
+
+            while ((bytes_read = read(testfile_fd, read_buffer, WRITE_BUFFER_SIZE)) > 0) {
+                // bytes_sent is return value from send function
+                bytes_sent = send(new_fd, read_buffer, bytes_read, 0);
+
+                if (bytes_sent == -1) {
+                    printf("Error in sending to socket!\n");
+                }
+            }
+
             // Reading into read_buffer
-            ssize_t bytes_read = read(testfile_fd, read_buffer, file_size);
             if (bytes_read == -1)
                 perror("read");
 
-            // bytes_sent is return value from send function
-            int bytes_sent = send(new_fd, read_buffer, file_size, 0);
-
-            if (bytes_sent == -1) {
-                printf("Error in sending to socket!\n");
-            }
-
             free(read_buffer);
+
+            // ENDTEST
+
+            // char *read_buffer = (char *)malloc(file_size);
+
+            // if (read_buffer == NULL) {
+            //     printf("Unable to allocate memory to read_buffer\n");
+            // }
+
+            // // Reading into read_buffer
+            // ssize_t bytes_read = read(testfile_fd, read_buffer, file_size);
+            // if (bytes_read == -1)
+            //     perror("read");
+
+            // // bytes_sent is return value from send function
+            // int bytes_sent = send(new_fd, read_buffer, file_size, 0);
+
+            // if (bytes_sent == -1) {
+            //     printf("Error in sending to socket!\n");
+            // }
+
+            // free(read_buffer);
 
             // Cleanup and reallocation of buffer to original size
             free(storage_buffer);
