@@ -322,10 +322,14 @@ int main(int argc, char **argv)
             // TEST
             char *read_buffer = NULL;
 
+            int read_buffer_size;
+
             if (file_size < WRITE_BUFFER_SIZE) {
                 read_buffer = (char *)malloc(file_size);
+                read_buffer_size = file_size;
             } else {
                 read_buffer = (char *)malloc(WRITE_BUFFER_SIZE);
+                read_buffer_size = WRITE_BUFFER_SIZE;
             }
 
             if (read_buffer == NULL) {
@@ -335,7 +339,7 @@ int main(int argc, char **argv)
             ssize_t bytes_read;
             int bytes_sent;
 
-            while ((bytes_read = read(testfile_fd, read_buffer, WRITE_BUFFER_SIZE)) > 0) {
+            while ((bytes_read = read(testfile_fd, read_buffer, read_buffer_size)) > 0) {
                 // bytes_sent is return value from send function
                 bytes_sent = send(new_fd, read_buffer, bytes_read, 0);
 
