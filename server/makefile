@@ -4,8 +4,8 @@ CC=gcc
 CROSS_COMPILE = 
 
 CDEFS=
-CFLAGS= -O0 -g -Wall -Werror $(INCLUDE_DIRS) $(CDEFS)
-LDFLAGS= -pthread -lrt
+CFLAGS?= -O0 -g -Wall -Werror $(INCLUDE_DIRS) $(CDEFS)
+LDFLAGS?= -pthread -lrt
 LIBS= 
 
 HFILES= 

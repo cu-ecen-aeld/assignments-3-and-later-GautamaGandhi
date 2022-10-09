@@ -1,6 +1,6 @@
 /**
 * File Name: aesdsocket.c
-* File Desciption: This file contains the main function for AESD Assignment 5 Part 1.
+* File Desciption: This file contains the main function for AESD Assignment 6 Part 1.
 * File Author: Gautama Gandhi
 * Reference: Linux man pages and Linux System Programming Textbook
 **/
@@ -32,31 +32,36 @@
 // Global Variables
 int socketfd; // Socket File Descriptor
 int testfile_fd; // Testfile File Descriptor
-// int new_fd; // File Descriptor used to receive and send data
-//char *storage_buffer; // Pointer to storage buffer
+// char *storage_buffer; // Pointer to storage buffer
+int g_linkedlist_len = 0; // Length of linked list
+timer_t timer;
+
+/**** Function Declarations ****/
+int create_timer();
+static void write_timestamp();
 
 
 pthread_mutex_t mutex;
 
+int complete_execution = 0;
 // Signal handler for SIGINT and SIGTERM signals
 void sig_handler(int signum)
 {
-    if (signum == SIGINT)
-        syslog(LOG_DEBUG, "Caught signal SIGINT, exiting");
-    else if (signum == SIGTERM)
-        syslog(LOG_DEBUG, "Caught signal SIGTERM, exiting");
+    if (signum == SIGINT || signum == SIGTERM) {
+        complete_execution = 1;
+    }
+    if (signum == SIGALRM) {
+        write_timestamp();
+    }
+}
 
-    //Closing socketfd FD
+void cleanup_and_exit()
+{
+    //Closing socketfd FD  
     int status = close(socketfd);
     if (status == -1) {
         syslog(LOG_ERR, "Unable to close socket FD with error %d", errno);
     }
-
-    // // Closing testfile FD
-    // status = close(new_fd);
-    // if (status == -1) {
-    //     syslog(LOG_ERR, "Unable to close new_fd FD with error %d", errno);
-    // }
 
     // Closing testfile FD
     status = close(testfile_fd);
@@ -69,9 +74,14 @@ void sig_handler(int signum)
         syslog(LOG_ERR, "Unable to unlink aesdsocketdata file with error %d", errno);
     }
 
+    pthread_mutex_destroy(&mutex);
+
+    timer_delete(timer);
+
     closelog();
     exit(EXIT_SUCCESS);
 }
+
 
 int signal_initializer()
 {
@@ -80,7 +90,7 @@ int signal_initializer()
 
     sigfillset(&act.sa_mask);
 
-    act.sa_flags = SA_RESTART;
+    act.sa_flags = 0;
 
     if(sigaction(SIGINT, &act, NULL) == -1)
 	{
@@ -89,6 +99,12 @@ int signal_initializer()
 	}
 
     if (sigaction(SIGTERM, &act, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sigaction(SIGALRM, &act, NULL) == -1)
     {
         perror("sigaction");
         exit(EXIT_FAILURE);
@@ -129,6 +145,7 @@ typedef struct {
     pthread_t threadid;
     int complete_flag;
     int connection_fd;
+    struct sockaddr_in *client_addr;
 } thread_data_t;
 
 typedef struct node_s {
@@ -139,16 +156,22 @@ typedef struct node_s {
 // Insert element into linked list
 void ll_insert(node_t **head_ref, node_t *node)
 {
-
+    node->next = *head_ref;
+    *head_ref = node;
+    g_linkedlist_len++;
 }
 
-
-// Thread Function
+/************************************************
+          THREAD FUNCTION
+ ************************************************/
 void* threadfunc(void* thread_param)
 {
     thread_data_t *thread_local_vars = (thread_data_t *)thread_param;
 
-    printf("\n%d\n", thread_local_vars->connection_fd);
+    // String to hold the IP address of the client; used when printing logs
+    char address_string[INET_ADDRSTRLEN];
+
+    syslog(LOG_DEBUG, "Accepted connection from %s", inet_ntop(AF_INET, &thread_local_vars->client_addr->sin_addr, address_string, sizeof(address_string)));
 
     char *storage_buffer = (char *)malloc(INITIAL_BUFFER_SIZE);
 
@@ -176,14 +199,13 @@ void* threadfunc(void* thread_param)
     // Variable that stores bytes written to file and is used to read from the file
     int file_size = 0;
 
+    // Count of bytes in packets without \n
     int previous_byte_count = 0;
 
     // While loop until bytes received is <= 0
     while ((bytes_received = recv(thread_local_vars->connection_fd, buffer, sizeof(buffer), 0)) > 0 ) {
 
-        printf("Bytes Received = %d\n", bytes_received);
-
-        // Edge case
+        // Edge case if continous transfer of small packets increases bytes count to > storage_buffer_size
         if (previous_byte_count + bytes_received > storage_buffer_size) {
             char *temp_ptr  = (char *)realloc(storage_buffer, (storage_buffer_size + INITIAL_BUFFER_SIZE));
             if (temp_ptr) {
@@ -214,7 +236,7 @@ void* threadfunc(void* thread_param)
             previous_byte_count = 0;
             break;
         } else {
-
+            // Recheck if \n not received using i and verifying if bytes recerive is less than buffer size
             if ((i == bytes_received) && (bytes_received < INITIAL_BUFFER_SIZE)) {
                 previous_byte_count += bytes_received;
             }
@@ -234,24 +256,26 @@ void* threadfunc(void* thread_param)
     }
 
     if (bytes_received == -1) {
-        printf("Error in receive; errno is %d\n", errno);
+        syslog(LOG_ERR, "Error in receive; errno is %d\n", errno);
+        goto receive_error;
     }
-
-    printf("Storage Buffer size = %d\n", bytes_to_write);
 
     // Check if packet_complete; indicating "\n" encountered in received data
     if (packet_complete_flag == 1) {
 
         packet_complete_flag = 0;
 
-        pthread_mutex_lock(&mutex);
+        int ret = pthread_mutex_lock(&mutex);
+        if (ret != 0) {
+            perror("Mutex Lock");
+        }
         //Writing to file
         int nr = write(testfile_fd, storage_buffer, bytes_to_write);
         file_size += nr; // Adding to current file length
 
         lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
 
-        // TEST
+        // Buffered read and send operation for 
         char *read_buffer = NULL;
 
         int read_buffer_size;
@@ -276,48 +300,33 @@ void* threadfunc(void* thread_param)
             bytes_sent = send(thread_local_vars->connection_fd, read_buffer, bytes_read, 0);
 
             if (bytes_sent == -1) {
-                printf("Error in sending to socket!\n");
+                syslog(LOG_ERR, "Error in send; errno is %d\n", errno);
+                break;
             }
         }
 
-        pthread_mutex_unlock(&mutex);
         // Reading into read_buffer
         if (bytes_read == -1)
             perror("read");
 
         free(read_buffer);
 
-        // ENDTEST
+        pthread_mutex_unlock(&mutex);
 
-        // Cleanup and reallocation of buffer to original size
-        free(storage_buffer);
+        // ENDTEST
     }
+
+    // Cleanup and reallocation of buffer to original size
+    receive_error: free(storage_buffer);
+
     thread_local_vars->complete_flag = 1;
 
-    return thread_param;
+    close(thread_local_vars->connection_fd);
 
-}
+    syslog(LOG_DEBUG, "Closed connection from %s", address_string);
 
-void alarm_handler(int signo)
-{
-    printf("10 seconds have passed\n");
-}
+    return NULL;
 
-int start_timer()
-{
-    struct itimerval delay;
-    int ret;
-    signal (SIGALRM, alarm_handler);
-    delay.it_value.tv_sec = 5;
-    delay.it_value.tv_usec = 0;
-    delay.it_interval.tv_sec = 10;
-    delay.it_interval.tv_usec = 0;
-    ret = setitimer (ITIMER_REAL, &delay, NULL);
-    if (ret) {
-        perror ("setitimer");
-        return -1;
-    }
-    return 0;
 }
 
 // Main function
@@ -325,9 +334,6 @@ int main(int argc, char **argv)
 {
     // Opening Log to use syslog
     openlog(NULL, 0,  LOG_USER);
-
-    // Starting timer
-    start_timer();
 
     // Flag that is set when "-d"
     int daemon_flag = 0;
@@ -345,6 +351,7 @@ int main(int argc, char **argv)
 
     printf("Socket Programming 101!\n");
 
+    // Register and initalize signals
     int sig_ret_status = signal_initializer();
 
     if (sig_ret_status == -1) {
@@ -418,46 +425,145 @@ int main(int argc, char **argv)
         syslog(LOG_ERR, "Error opening file with error: %d", errno);
     } 
 
+    // Starting timer
+    create_timer();
+
     pthread_mutex_init(&mutex, NULL);
     // String to hold the IP address of the client; used when printing logs
-    char address_string[INET_ADDRSTRLEN];
+    //char address_string[INET_ADDRSTRLEN];
 
-    // node_t *head = NULL;
+    node_t *head = NULL;
+    node_t *current, *previous;
 
-    while(1) {
+    // int count = 0;
+
+    while(!complete_execution) {
 
         // Continuously restarting connections in the while(1) loop
         int new_fd = accept(socketfd, (struct sockaddr *)&test_addr, &addr_size);
 
         if (new_fd == -1) {
-            perror("accept");
-            continue;
-        } else {
-            // Using sock_addr_in and inet_ntop function to print the IP address of the accepted client connection
-            // Reference: https://stackoverflow.com/questions/2104495/extract-ip-from-connection-that-listen-and-accept-in-socket-programming-in-linux
-            struct sockaddr_in *p = (struct sockaddr_in *)&test_addr;
-            // TODO: Malloc for address string
-            // TODO: Put syslog within thread
-            syslog(LOG_DEBUG, "Accepted connection from %s", inet_ntop(AF_INET, &p->sin_addr, address_string, sizeof(address_string)));
-
-            // pthread_t thread;
-            // Malloc new node
-            node_t *new_node = (node_t *)malloc(sizeof(node_t));
-            new_node->thread_data.complete_flag = 0;
-            new_node->thread_data.connection_fd = new_fd;
-
-            // Creating a thread to run threadfunc with parameters thread_param
-            int ret = pthread_create(&(new_node->thread_data.threadid), NULL, threadfunc, &(new_node->thread_data));
-            if (ret != 0) {
-                printf("Error in pthread_create with err number: %d", errno);
-            } else if (ret == 0) {
-                printf("Success in creating thread!\n");
-            }
+            if (errno == EINTR) {
+                continue;
+            } else {
+                perror("accept");
+                continue;
+            }   
         }
 
-        // close(new_fd);
-        syslog(LOG_DEBUG, "Closed connection from %s", address_string);
+        // Using sock_addr_in and inet_ntop function to print the IP address of the accepted client connection
+        // Reference: https://stackoverflow.com/questions/2104495/extract-ip-from-connection-that-listen-and-accept-in-socket-programming-in-linux
+        // struct sockaddr_in *p = (struct sockaddr_in *)&test_addr;
+        // TODO: Malloc for address string
+        // TODO: Put syslog within thread
+        // syslog(LOG_DEBUG, "Accepted connection from %s", inet_ntop(AF_INET, &p->sin_addr, address_string, sizeof(address_string)));
+
+        // Malloc new node
+        node_t *new_node = (node_t *)malloc(sizeof(node_t));
+        new_node->thread_data.complete_flag = 0;
+        new_node->thread_data.connection_fd = new_fd;
+        new_node->thread_data.client_addr = (struct sockaddr_in *)&test_addr;
+
+        // Creating a thread to run threadfunc with parameters thread_param
+        int ret = pthread_create(&(new_node->thread_data.threadid), NULL, threadfunc, &(new_node->thread_data));
+        if (ret != 0) {
+            printf("Error in pthread_create with err number: %d", errno);
+        } else if (ret == 0) {
+            printf("Success in creating thread!\n");
+        }
+
+        ll_insert(&head, new_node); 
+    //}
+        
+        //if (g_linkedlist_len > 0) {
+            // Iterating logic to remove from linked list
+            current = head;
+            previous = head;
+
+            while(current != NULL) {
+                //Updating head if first node is complete
+                if ((current->thread_data.complete_flag == 1) && (current == head)) {
+                    printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
+                    head = current->next;
+                    current->next = NULL;
+                    pthread_join(current->thread_data.threadid, NULL);
+                    free(current);
+                    g_linkedlist_len--;
+                    current = head;
+                }
+                else if ((current->thread_data.complete_flag == 1) && (current != head)) { // Deleting any other node
+                    printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
+                    previous->next = current->next;
+                    current->next = NULL;
+                    pthread_join(current->thread_data.threadid, NULL);
+                    free(current);
+                    g_linkedlist_len--;
+                    current = previous->next;
+                } 
+                else {
+                    previous = current;
+                    current = current->next;
+                }
+           // }
+        }
     }
+    
+    cleanup_and_exit();
 
     return 0;
+}
+
+/************************************************
+          TIMER CODE
+ ************************************************/
+static void write_timestamp()
+{
+    time_t timestamp;
+    char time_buffer[40];
+    char write_buffer[100];
+
+    struct tm* tm_info;
+
+    time(&timestamp);
+    tm_info = localtime(&timestamp);
+
+    strftime(time_buffer, 40, "%a, %d %b %Y %T %z", tm_info);
+    sprintf(write_buffer, "timestamp:%s\n", time_buffer);
+
+    lseek(testfile_fd, 0, SEEK_END);
+
+    pthread_mutex_lock(&mutex);
+    int nr = write(testfile_fd, write_buffer, strlen(write_buffer));
+    if (nr == -1) {
+        perror("write");
+    }
+    pthread_mutex_unlock(&mutex);
+}
+
+int create_timer()
+{
+    int status = timer_create(CLOCK_REALTIME, NULL, &timer);
+    if(status == -1)
+    {
+        perror("timer_create");
+        return EXIT_FAILURE;
+    }
+
+    // struct itimerval delay;
+    struct itimerspec delay;
+    int ret;
+
+    delay.it_value.tv_sec = 10;
+    delay.it_value.tv_nsec = 0;
+    delay.it_interval.tv_sec = 10;
+    delay.it_interval.tv_nsec = 0;
+
+    ret = timer_settime(timer, 0, &delay, NULL);
+
+    if (ret) {
+        perror ("timer_settime");
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
 }
