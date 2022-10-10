@@ -301,16 +301,18 @@ void* threadfunc(void* thread_param)
             // bytes_sent is return value from send function
             bytes_sent = send(thread_local_vars->connection_fd, read_buffer, bytes_read, 0);
 
+            // Breaking out of loop and cleaning up if error in sending 
             if (bytes_sent == -1) {
                 syslog(LOG_ERR, "Error in send; errno is %d\n", errno);
                 break;
             }
         }
 
-        // Reading into read_buffer
+        // Error reading into read_buffer
         if (bytes_read == -1)
             perror("read");
 
+        // Freeing read_buffer
         free(read_buffer);
 
         ret = pthread_mutex_unlock(&mutex);
@@ -320,7 +322,7 @@ void* threadfunc(void* thread_param)
         }
     }
 
-    // Cleanup and reallocation of buffer to original size
+    // Cleanup of storage buffer, connection_fd and setting complete flag to 1
     receive_error: free(storage_buffer);
 
     thread_local_vars->complete_flag = 1;
@@ -464,7 +466,7 @@ int main(int argc, char **argv)
         if (ret != 0) {
             printf("Error in pthread_create with err number: %d", errno);
         } else if (ret == 0) {
-            printf("Success in creating thread!\n");
+            printf("Success in creating thread with ID: %lu!\n", (new_node->thread_data.threadid));
         }
 
         ll_insert(&head, new_node); 
@@ -476,7 +478,7 @@ int main(int argc, char **argv)
         while(current != NULL) {
             //Updating head if first node is complete
             if ((current->thread_data.complete_flag == 1) && (current == head)) {
-                printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
+                printf("Exited from Thread %lu sucessfully\n", (current->thread_data.threadid));
                 head = current->next;
                 current->next = NULL;
                 pthread_join(current->thread_data.threadid, NULL);
