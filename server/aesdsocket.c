@@ -1,6 +1,6 @@
 /**
 * File Name: aesdsocket.c
-* File Desciption: This file contains the main function for AESD Assignment 6 Part 1.
+* File Desciption: This file contains the functionality for AESD Assignment 6 Part 1.
 * File Author: Gautama Gandhi
 * Reference: Linux man pages and Linux System Programming Textbook
 **/
@@ -25,26 +25,23 @@
 #include <pthread.h>
 #include <sys/time.h>
 
+/**** DEFINES ****/
 #define BACKLOG 10 // Setting 10 as the connection request limit while listening
 #define INITIAL_BUFFER_SIZE 1024 // Buffer size for receive and storage buffers
 #define WRITE_BUFFER_SIZE 512 // Write buffer size
 
-// Global Variables
+/**** Global Variables ****/
 int socketfd; // Socket File Descriptor
 int testfile_fd; // Testfile File Descriptor
-// char *storage_buffer; // Pointer to storage buffer
-int g_linkedlist_len = 0; // Length of linked list
-timer_t timer;
+timer_t timer; // Timer used to get timestamp
+pthread_mutex_t mutex; // Mutex to be used when 
+int complete_execution = 0; // Execution flag that is set when SIGTERM or SIGINT is received 
 
 /**** Function Declarations ****/
-int create_timer();
+static int create_timer();
 static void write_timestamp();
 
-
-pthread_mutex_t mutex;
-
-int complete_execution = 0;
-// Signal handler for SIGINT and SIGTERM signals
+// Signal handler for SIGINT, SIGTERM and SIGALRM signals
 void sig_handler(int signum)
 {
     if (signum == SIGINT || signum == SIGTERM) {
@@ -55,6 +52,7 @@ void sig_handler(int signum)
     }
 }
 
+// Cleanup and EXIT function invoked when SIGTERM or SIGINT is received
 void cleanup_and_exit()
 {
     //Closing socketfd FD  
@@ -69,20 +67,23 @@ void cleanup_and_exit()
         syslog(LOG_ERR, "Unable to close testfile FD with error %d", errno);
     }
 
+    // Unlinking file
     unlink("/var/tmp/aesdsocketdata");
     if (status == -1) {
         syslog(LOG_ERR, "Unable to unlink aesdsocketdata file with error %d", errno);
     }
 
+    // Destroying mutex
     pthread_mutex_destroy(&mutex);
 
+    // Deleting timer
     timer_delete(timer);
 
     closelog();
     exit(EXIT_SUCCESS);
 }
 
-
+// Function that initializes signals
 int signal_initializer()
 {
     struct sigaction act;
@@ -141,24 +142,25 @@ static int daemon_create()
     return 0;
 }
 
+// Structure that holds thread_data values
 typedef struct {
-    pthread_t threadid;
-    int complete_flag;
-    int connection_fd;
-    struct sockaddr_in *client_addr;
+    pthread_t threadid; // Thread_ID
+    int complete_flag; // Complete flag for thread
+    int connection_fd; // Connection FD
+    struct sockaddr_in *client_addr; // Client Address
 } thread_data_t;
 
+// Linked List node structure
 typedef struct node_s {
     thread_data_t thread_data;
     struct node_s *next;
 } node_t;
 
-// Insert element into linked list
+// Insert element into linked list at the HEAD of the list
 void ll_insert(node_t **head_ref, node_t *node)
 {
     node->next = *head_ref;
     *head_ref = node;
-    g_linkedlist_len++;
 }
 
 /************************************************
@@ -311,9 +313,11 @@ void* threadfunc(void* thread_param)
 
         free(read_buffer);
 
-        pthread_mutex_unlock(&mutex);
+        ret = pthread_mutex_unlock(&mutex);
 
-        // ENDTEST
+        if (ret != 0) {
+            perror("Mutex Unlock");
+        }
     }
 
     // Cleanup and reallocation of buffer to original size
@@ -429,14 +433,12 @@ int main(int argc, char **argv)
     create_timer();
 
     pthread_mutex_init(&mutex, NULL);
-    // String to hold the IP address of the client; used when printing logs
-    //char address_string[INET_ADDRSTRLEN];
 
+    // Creating head, current and previous nodes for linked list insertion and traversal
     node_t *head = NULL;
     node_t *current, *previous;
 
-    // int count = 0;
-
+    // Loop until complete_execution flag is set
     while(!complete_execution) {
 
         // Continuously restarting connections in the while(1) loop
@@ -450,13 +452,6 @@ int main(int argc, char **argv)
                 continue;
             }   
         }
-
-        // Using sock_addr_in and inet_ntop function to print the IP address of the accepted client connection
-        // Reference: https://stackoverflow.com/questions/2104495/extract-ip-from-connection-that-listen-and-accept-in-socket-programming-in-linux
-        // struct sockaddr_in *p = (struct sockaddr_in *)&test_addr;
-        // TODO: Malloc for address string
-        // TODO: Put syslog within thread
-        // syslog(LOG_DEBUG, "Accepted connection from %s", inet_ntop(AF_INET, &p->sin_addr, address_string, sizeof(address_string)));
 
         // Malloc new node
         node_t *new_node = (node_t *)malloc(sizeof(node_t));
@@ -473,38 +468,43 @@ int main(int argc, char **argv)
         }
 
         ll_insert(&head, new_node); 
-    //}
         
-        //if (g_linkedlist_len > 0) {
-            // Iterating logic to remove from linked list
-            current = head;
-            previous = head;
+        // Iterating logic to remove from linked list
+        current = head;
+        previous = head;
 
-            while(current != NULL) {
-                //Updating head if first node is complete
-                if ((current->thread_data.complete_flag == 1) && (current == head)) {
-                    printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
-                    head = current->next;
-                    current->next = NULL;
-                    pthread_join(current->thread_data.threadid, NULL);
-                    free(current);
-                    g_linkedlist_len--;
-                    current = head;
-                }
-                else if ((current->thread_data.complete_flag == 1) && (current != head)) { // Deleting any other node
-                    printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
-                    previous->next = current->next;
-                    current->next = NULL;
-                    pthread_join(current->thread_data.threadid, NULL);
-                    free(current);
-                    g_linkedlist_len--;
-                    current = previous->next;
-                } 
-                else {
-                    previous = current;
-                    current = current->next;
-                }
-           // }
+        while(current != NULL) {
+            //Updating head if first node is complete
+            if ((current->thread_data.complete_flag == 1) && (current == head)) {
+                printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
+                head = current->next;
+                current->next = NULL;
+                pthread_join(current->thread_data.threadid, NULL);
+                free(current);
+                current = head;
+            }
+            else if ((current->thread_data.complete_flag == 1) && (current != head)) { // Deleting any other node
+                printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
+                previous->next = current->next;
+                current->next = NULL;
+                pthread_join(current->thread_data.threadid, NULL);
+                free(current);
+                current = previous->next;
+            } 
+            else {
+                // Traverse Linked List with previous behind current
+                previous = current;
+                current = current->next;
+            }
+        }
+    }
+
+    // Edge case for Valgrind extra thread: Freeing head node if it exists and the corresponding thread has completed
+    if (head) {
+        if(head->thread_data.complete_flag == 1) {
+            pthread_join(head->thread_data.threadid, NULL);
+            free(head);
+            head = NULL;
         }
     }
     
@@ -516,6 +516,7 @@ int main(int argc, char **argv)
 /************************************************
           TIMER CODE
  ************************************************/
+// Function to write timestamp value to file
 static void write_timestamp()
 {
     time_t timestamp;
@@ -540,7 +541,8 @@ static void write_timestamp()
     pthread_mutex_unlock(&mutex);
 }
 
-int create_timer()
+// Function to create a timer
+static int create_timer()
 {
     int status = timer_create(CLOCK_REALTIME, NULL, &timer);
     if(status == -1)
