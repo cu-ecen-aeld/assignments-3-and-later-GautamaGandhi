@@ -1,7 +1,7 @@
 # OOPS Message Analysis
 The echo "hello_world" > /dev/faulty command was run which resulted in the following log. 
 ## OOPS Message
-<code>
+```
 Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000
 Mem abort info:
   ESR = 0x96000045
@@ -44,7 +44,7 @@ Call trace:
  el0t_64_sync+0x1a0/0x1a4
 Code: d2800001 d2800000 d503233f d50323bf (b900003f) 
 ---[ end trace 769748e948f705d7 ]--
-</code>
+```
 
 ## Analysis
 As seen in the first line of the log: <code>Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000</code>; this error message is caused by the kernel attempting to dereference a NULL pointer.  
