@@ -19,6 +19,7 @@
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
 #include "linux/slab.h"
+#include "linux/string.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -106,12 +107,14 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 {
     ssize_t retval = 0; //-ENOMEM;
     
-    char *temp_buffer;
+    char *temp_buffer; // Local buffer to store data
     int i;
-    int packet_complete_flag = 0;
-    int temp_iterator = 0;
+    int packet_complete_flag = 0; // Flag indicating complete packet
+    int temp_iterator = 0; // Temp_iterator to hold value after packet is complete
     struct aesd_buffer_entry aesd_buffer_write_entry;
     struct aesd_dev *dev;
+
+    int temp_size_increment = 0;
 
     char *ret_ptr;
 
@@ -121,14 +124,25 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     mutex_lock(&aesd_device.lock);
 
-    temp_buffer = kmalloc(count*sizeof(char *), GFP_KERNEL); // Malloc count number of bytes
-    if (!temp_buffer)
+    // Mallocing into local buffer
+    temp_buffer = (char *)kmalloc(count, GFP_KERNEL);
+    if (temp_buffer == NULL)
         goto out;
     
+    // Reallocing count number of bytes
+    // aesd_device.copy_buffer_ptr = krealloc(aesd_device.copy_buffer_ptr, aesd_device.buffer_size + count, GFP_KERNEL); 
+    // if (!aesd_device.copy_buffer_ptr)
+    //     goto out;
+    
+    // Copying from userspace to kernel space
     if (copy_from_user(temp_buffer, buf, count)) {
-		//retval = -EFAULT;
 		goto out;
 	}
+
+    retval = count;
+
+    // Increasing copy buffer_size
+    // aesd_device.buffer_size += count;
 
     // Iterating over bytes received to check for "\n" character
     for (i = 0; i < count; i++) {
@@ -139,26 +153,71 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         }
     }
 
+    // Check if copy buffer size is 0; mallocing and copying local buffer into global buffer
+    if (dev->buffer_size == 0) {
+        dev->copy_buffer_ptr = (char *)kmalloc(count, GFP_KERNEL);
+        if (dev->copy_buffer_ptr == NULL)
+            goto free;
+        memcpy(dev->copy_buffer_ptr, temp_buffer, count);
+        dev->buffer_size += count;
+    } 
+    else {
+
+        if (packet_complete_flag)
+            temp_size_increment = temp_iterator;
+        else
+            temp_size_increment = count;
+
+        dev->copy_buffer_ptr = (char *)krealloc(dev->copy_buffer_ptr, dev->buffer_size + temp_size_increment, GFP_KERNEL);
+        if (dev->copy_buffer_ptr == NULL)
+            goto free;
+
+        memcpy(dev->copy_buffer_ptr + dev->buffer_size, temp_buffer, temp_size_increment);
+        dev->buffer_size += temp_size_increment;        
+    }
+    
     if (packet_complete_flag) {
-        aesd_buffer_write_entry.buffptr = temp_buffer;
-        aesd_buffer_write_entry.size = temp_iterator;
+
+        // // Mallocing temp_buffer and copying value from copy_buffer
+        // temp_buffer = kmalloc(aesd_device.buffer_size, GFP_KERNEL);
+        // if(copy_from_user(temp_buffer, aesd_device.copy_buffer_ptr, aesd_device.buffer_size + temp_iterator))
+        //     goto out;
+
+        // Adding entry onto circular buffer
+        aesd_buffer_write_entry.buffptr = dev->copy_buffer_ptr;
+        aesd_buffer_write_entry.size = dev->buffer_size;
         ret_ptr = aesd_circular_buffer_add_entry(&dev->aesd_circular_buffer, &aesd_buffer_write_entry);
+    
         // Freeing return_pointer if buffer is full 
         if (ret_ptr != NULL)
             kfree(ret_ptr);
-        retval = count;
+        
+        // retval = aesd_buffer_write_entry.size;
+
+        // Cleanup Copy buffer
+        // kfree(aesd_device.copy_buffer_ptr);
+        dev->buffer_size = 0;
+
     //     uint8_t index;
     //     struct aesd_buffer_entry *entry;
     //     AESD_CIRCULAR_BUFFER_FOREACH(entry,&dev->aesd_circular_buffer,index) {
     //     printk(KERN_ALERT "Entry %d: %s\n", index, entry->buffptr);
     //  }
-    } else {
-        
-    }
+    } 
+    // else {
+
+    //     dev->copy_buffer_ptr = (char *)krealloc(dev->copy_buffer_ptr, dev->buffer_size + count, GFP_KERNEL);
+    //     if (dev->copy_buffer_ptr == NULL)
+    //         goto free;
+
+    //     memcpy(dev->copy_buffer_ptr + dev->buffer_size, temp_buffer, count);
+    //     dev->buffer_size += count;
+    // }
 
     /**
      * TODO: handle write
      */
+    free: kfree(temp_buffer);
     out: mutex_unlock(&aesd_device.lock);
     return retval;
 }
@@ -199,6 +258,8 @@ int aesd_init_module(void)
         return result;
     }
     memset(&aesd_device,0,sizeof(struct aesd_dev));
+
+    // printk(KERN_ALERT "Init");
 
     /**
      * TODO: initialize the AESD specific portion of the device

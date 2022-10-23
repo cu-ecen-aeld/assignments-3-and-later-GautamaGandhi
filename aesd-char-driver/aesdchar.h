@@ -24,7 +24,7 @@
 #  define PDEBUG(fmt, args...) /* not debugging: nothing */
 #endif
 
-clearstruct aesd_dev
+struct aesd_dev
 {
     /**
      * TODO: Add structure(s) and locks needed to complete assignment requirements
@@ -33,7 +33,7 @@ clearstruct aesd_dev
 
     struct mutex lock;     /* mutual exclusion semaphore  */
 
-    char *temp_buffer_ptr;
+    char *copy_buffer_ptr;
 
     size_t buffer_size; /* temp_buffer for writing */
 
