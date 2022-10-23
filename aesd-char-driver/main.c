@@ -74,6 +74,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     temp_buffer = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->aesd_circular_buffer, *f_pos, &offset_byte_pos);
 
     if (temp_buffer == NULL) {
+        *f_pos = 0;
         goto out;
     }
     
