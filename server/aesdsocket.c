@@ -286,7 +286,7 @@ void* threadfunc(void* thread_param)
         //     perror("Mutex Lock");
         // }
         //Writing to file
-        int new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+        int new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
         int nr = write(new_testfile_fd, storage_buffer, bytes_to_write);
         file_size += nr; // Adding to current file length
 
@@ -296,7 +296,7 @@ void* threadfunc(void* thread_param)
         // new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
         // #endif
 
-        lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
+        // lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
 
         // Buffered read and send operation for 
         char *read_buffer = NULL;
@@ -318,7 +318,7 @@ void* threadfunc(void* thread_param)
         ssize_t bytes_read;
         int bytes_sent;
 
-        while ((bytes_read = read(testfile_fd, read_buffer, read_buffer_size)) > 0) {
+        while ((bytes_read = read(new_testfile_fd, read_buffer, read_buffer_size)) > 0) {
             // bytes_sent is return value from send function
             bytes_sent = send(thread_local_vars->connection_fd, read_buffer, bytes_read, 0);
 
