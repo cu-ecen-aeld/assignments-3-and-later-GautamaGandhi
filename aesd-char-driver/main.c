@@ -64,13 +64,12 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     ssize_t retval = 0;
     size_t offset_byte_pos;
     int temp_buffer_count = 0;
+    struct aesd_dev *dev = filp->private_data;
+    struct aesd_buffer_entry *temp_buffer;
+
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
 
-    struct aesd_dev *dev = filp->private_data;
-
     mutex_lock(&aesd_device.lock);
-
-    struct aesd_buffer_entry *temp_buffer;
 
     temp_buffer = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->aesd_circular_buffer, *f_pos, &offset_byte_pos);
 
@@ -128,21 +127,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     temp_buffer = (char *)kmalloc(count, GFP_KERNEL);
     if (temp_buffer == NULL)
         goto out;
-    
-    // Reallocing count number of bytes
-    // aesd_device.copy_buffer_ptr = krealloc(aesd_device.copy_buffer_ptr, aesd_device.buffer_size + count, GFP_KERNEL); 
-    // if (!aesd_device.copy_buffer_ptr)
-    //     goto out;
-    
+        
     // Copying from userspace to kernel space
     if (copy_from_user(temp_buffer, buf, count)) {
 		goto out;
 	}
-
-    retval = count;
-
-    // Increasing copy buffer_size
-    // aesd_device.buffer_size += count;
 
     // Iterating over bytes received to check for "\n" character
     for (i = 0; i < count; i++) {
@@ -178,11 +167,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     
     if (packet_complete_flag) {
 
-        // // Mallocing temp_buffer and copying value from copy_buffer
-        // temp_buffer = kmalloc(aesd_device.buffer_size, GFP_KERNEL);
-        // if(copy_from_user(temp_buffer, aesd_device.copy_buffer_ptr, aesd_device.buffer_size + temp_iterator))
-        //     goto out;
-
         // Adding entry onto circular buffer
         aesd_buffer_write_entry.buffptr = dev->copy_buffer_ptr;
         aesd_buffer_write_entry.size = dev->buffer_size;
@@ -192,10 +176,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         if (ret_ptr != NULL)
             kfree(ret_ptr);
         
-        // retval = aesd_buffer_write_entry.size;
-
-        // Cleanup Copy buffer
-        // kfree(aesd_device.copy_buffer_ptr);
         dev->buffer_size = 0;
 
     //     uint8_t index;
@@ -204,15 +184,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     //     printk(KERN_ALERT "Entry %d: %s\n", index, entry->buffptr);
     //  }
     } 
-    // else {
 
-    //     dev->copy_buffer_ptr = (char *)krealloc(dev->copy_buffer_ptr, dev->buffer_size + count, GFP_KERNEL);
-    //     if (dev->copy_buffer_ptr == NULL)
-    //         goto free;
-
-    //     memcpy(dev->copy_buffer_ptr + dev->buffer_size, temp_buffer, count);
-    //     dev->buffer_size += count;
-    // }
+    retval = count;
 
     /**
      * TODO: handle write

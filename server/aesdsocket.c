@@ -286,14 +286,15 @@ void* threadfunc(void* thread_param)
         //     perror("Mutex Lock");
         // }
         //Writing to file
-        int nr = write(testfile_fd, storage_buffer, bytes_to_write);
+        int new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+        int nr = write(new_testfile_fd, storage_buffer, bytes_to_write);
         file_size += nr; // Adding to current file length
 
-        #ifdef USE_AESD_CHAR_DEVICE
-        close(testfile_fd);
+        // #ifdef USE_AESD_CHAR_DEVICE
+        // close(new_testfile_fd);
 
-        testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
-        #endif
+        // new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+        // #endif
 
         lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
 
@@ -332,6 +333,7 @@ void* threadfunc(void* thread_param)
         if (bytes_read == -1)
             perror("read");
 
+        close(new_testfile_fd);
         // Freeing read_buffer
         free(read_buffer);
 
