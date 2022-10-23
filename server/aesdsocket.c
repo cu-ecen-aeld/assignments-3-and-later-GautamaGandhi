@@ -444,20 +444,20 @@ int main(int argc, char **argv)
 
     socklen_t addr_size = sizeof test_addr;
 
-    #ifdef USE_AESD_CHAR_DEVICE
-    char *filename = "/dev/aesdchar";
-    #else
-    char *filename = "/var/tmp/aesdsocketdata";
-    #endif
+    // #ifdef USE_AESD_CHAR_DEVICE
+    // char *filename = "/dev/aesdchar";
+    // #else
+    // char *filename = "/var/tmp/aesdsocketdata";
+    // #endif
 
     // /var/tmp/aesdsocketdata operations
     // Opening the file specified by filepath with the following flags and allowing the permissions: u=rw,g=rw,o=r
-    testfile_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+    // testfile_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
 
     // In case of an error opening the file
-    if (testfile_fd == -1) {
-        syslog(LOG_ERR, "Error opening file with error: %d", errno);
-    } 
+    // if (testfile_fd == -1) {
+    //     syslog(LOG_ERR, "Error opening file with error: %d", errno);
+    // } 
 
     #ifndef USE_AESD_CHAR_DEVICE
     // Starting timer
