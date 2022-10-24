@@ -31,11 +31,11 @@ struct aesd_dev
      */
     struct aesd_circular_buffer aesd_circular_buffer; /* Circular Buffer */
 
-    struct mutex lock;     /* mutual exclusion semaphore  */
+    struct mutex lock;     /* mutual exclusion semaphore  used for write and read commands */
 
-    char *copy_buffer_ptr;
+    char *copy_buffer_ptr; /* Copy buffer Pointer used to store entries onto circular buffer*/
 
-    size_t buffer_size; /* temp_buffer for writing */
+    size_t buffer_size; /* Tracking size of copy buffer */
 
     struct cdev cdev;     /* Char device structure      */
 };

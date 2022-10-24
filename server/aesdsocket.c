@@ -35,8 +35,11 @@
 
 /**** Global Variables ****/
 int socketfd; // Socket File Descriptor
-int testfile_fd; // Testfile File Descriptor
+// int testfile_fd; // Testfile File Descriptor
+#ifndef USE_AESD_CHAR_DEVICE
 timer_t timer; // Timer used to get timestamp
+pthread_mutex_t mutex; // Mutex to be used when 
+#endif
 // pthread_mutex_t mutex; // Mutex to be used when 
 int complete_execution = 0; // Execution flag that is set when SIGTERM or SIGINT is received 
 
@@ -69,12 +72,6 @@ void cleanup_and_exit()
         syslog(LOG_ERR, "Unable to close socket FD with error %d", errno);
     }
 
-    // Closing testfile FD
-    status = close(testfile_fd);
-    if (status == -1) {
-        syslog(LOG_ERR, "Unable to close testfile FD with error %d", errno);
-    }
-
     #ifndef USE_AESD_CHAR_DEVICE
     // Unlinking file
     unlink("/var/tmp/aesdsocketdata");
@@ -83,8 +80,10 @@ void cleanup_and_exit()
     }
     #endif
 
+    #ifndef USE_AESD_CHAR_DEVICE
     // Destroying mutex
-    // pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&mutex);
+    #endif
 
     #ifndef USE_AESD_CHAR_DEVICE
     // Deleting timer
@@ -281,22 +280,27 @@ void* threadfunc(void* thread_param)
 
         packet_complete_flag = 0;
 
-        // int ret = pthread_mutex_lock(&mutex);
-        // if (ret != 0) {
-        //     perror("Mutex Lock");
-        // }
+        #ifndef USE_AESD_CHAR_DEVICE
+        int ret = pthread_mutex_lock(&mutex);
+        if (ret != 0) {
+            perror("Mutex Lock");
+        }
+        #endif
+
+        #ifdef USE_AESD_CHAR_DEVICE
+        char *filename = "/dev/aesdchar";
+        #else
+        char *filename = "/var/tmp/aesdsocketdata";
+        #endif
+
         //Writing to file
-        int new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+        int new_testfile_fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
         int nr = write(new_testfile_fd, storage_buffer, bytes_to_write);
         file_size += nr; // Adding to current file length
 
-        // #ifdef USE_AESD_CHAR_DEVICE
-        // close(new_testfile_fd);
-
-        // new_testfile_fd = open("/dev/aesdchar", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
-        // #endif
-
-        // lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
+        #ifndef USE_AESD_CHAR_DEVICE
+        lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
+        #endif
 
         // Buffered read and send operation for 
         char *read_buffer = NULL;
@@ -337,11 +341,13 @@ void* threadfunc(void* thread_param)
         // Freeing read_buffer
         free(read_buffer);
 
-        // ret = pthread_mutex_unlock(&mutex);
+        #ifndef USE_AESD_CHAR_DEVICE
+        ret = pthread_mutex_unlock(&mutex);
 
-        // if (ret != 0) {
-        //     perror("Mutex Unlock");
-        // }
+        if (ret != 0) {
+            perror("Mutex Unlock");
+        }
+        #endif
     }
 
     // Cleanup of storage buffer, connection_fd and setting complete flag to 1
@@ -464,7 +470,9 @@ int main(int argc, char **argv)
     create_timer();
     #endif
 
-    // pthread_mutex_init(&mutex, NULL);
+    #ifndef USE_AESD_CHAR_DEVICE
+    pthread_mutex_init(&mutex, NULL);
+    #endif
 
     // Creating head, current and previous nodes for linked list insertion and traversal
     node_t *head = NULL;
@@ -566,12 +574,21 @@ static void write_timestamp()
 
     lseek(testfile_fd, 0, SEEK_END);
 
-    // pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&mutex);
+
+
+    int testfile_fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+
+    // Error case
+    if (testfile_fd == -1) {
+        syslog(LOG_ERR, "Error opening file with error: %d", errno);
+    } 
+
     int nr = write(testfile_fd, write_buffer, strlen(write_buffer));
     if (nr == -1) {
         perror("write");
     }
-    // pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&mutex);
 }
 
 // Function to create a timer

@@ -54,7 +54,8 @@ int aesd_release(struct inode *inode, struct file *filp)
 /**
  * filp -> File pointer to get aesd_dev
  * buf -> Buffer to fill
- * 
+ * count -> User space buffer size
+ * f_pos -> File position
  * 
  * Return number of bytes transferred to the buf
 */
@@ -105,16 +106,16 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
-    ssize_t retval = 0; //-ENOMEM;
+    ssize_t retval = 0; // Return Value
     
-    char *temp_buffer; // Local buffer to store data
-    int i;
+    char *temp_buffer; // Local buffer to store data recieved from write command and later copy it to global copy buffer
+    int i; // Loop iterator
     int packet_complete_flag = 0; // Flag indicating complete packet
     int temp_iterator = 0; // Temp_iterator to hold value after packet is complete
-    struct aesd_buffer_entry aesd_buffer_write_entry;
+    struct aesd_buffer_entry aesd_buffer_write_entry; // Aesd_buffer_entry struct value
     struct aesd_dev *dev;
 
-    int temp_size_increment = 0;
+    int temp_size_increment = 0; // Variable to hold temporary size increment value based on complete/incomplete packets
 
     char *ret_ptr;
 
@@ -126,19 +127,22 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     // Mallocing into local buffer
     temp_buffer = (char *)kmalloc(count, GFP_KERNEL);
-    if (temp_buffer == NULL)
+    if (temp_buffer == NULL) {
+        retval = -ENOMEM;
         goto out;
+    }
         
     // Copying from userspace to kernel space
     if (copy_from_user(temp_buffer, buf, count)) {
+        retval = -EFAULT;
 		goto out;
 	}
 
     // Iterating over bytes received to check for "\n" character
     for (i = 0; i < count; i++) {
         if (temp_buffer[i] == '\n') {
-            packet_complete_flag = 1;
-            temp_iterator = i+1;
+            packet_complete_flag = 1; // Setting packet complete flag
+            temp_iterator = i+1; // Setting temp_iterator value to store
             break;
         }
     }
@@ -146,26 +150,33 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     // Check if copy buffer size is 0; mallocing and copying local buffer into global buffer
     if (dev->buffer_size == 0) {
         dev->copy_buffer_ptr = (char *)kmalloc(count, GFP_KERNEL);
-        if (dev->copy_buffer_ptr == NULL)
+        if (dev->copy_buffer_ptr == NULL) {
+            retval = -ENOMEM;
             goto free;
+        }
         memcpy(dev->copy_buffer_ptr, temp_buffer, count);
         dev->buffer_size += count;
     } 
     else {
-
+        // Case when write command is issued without '\n'
         if (packet_complete_flag)
             temp_size_increment = temp_iterator;
         else
             temp_size_increment = count;
 
+        // Realloc copy buffer size based on temporary size increment variable
         dev->copy_buffer_ptr = (char *)krealloc(dev->copy_buffer_ptr, dev->buffer_size + temp_size_increment, GFP_KERNEL);
-        if (dev->copy_buffer_ptr == NULL)
+        if (dev->copy_buffer_ptr == NULL) {
+            retval = -ENOMEM;
             goto free;
+        }
 
+        // Copying temp_buffer contents into copy_buffer
         memcpy(dev->copy_buffer_ptr + dev->buffer_size, temp_buffer, temp_size_increment);
         dev->buffer_size += temp_size_increment;        
     }
     
+    // Adding entry onto circular buffer if packet is complete
     if (packet_complete_flag) {
 
         // Adding entry onto circular buffer
@@ -178,12 +189,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             kfree(ret_ptr);
         
         dev->buffer_size = 0;
-
-    //     uint8_t index;
-    //     struct aesd_buffer_entry *entry;
-    //     AESD_CIRCULAR_BUFFER_FOREACH(entry,&dev->aesd_circular_buffer,index) {
-    //     printk(KERN_ALERT "Entry %d: %s\n", index, entry->buffptr);
-    //  }
     } 
 
     retval = count;
@@ -233,8 +238,6 @@ int aesd_init_module(void)
     }
     memset(&aesd_device,0,sizeof(struct aesd_dev));
 
-    // printk(KERN_ALERT "Init");
-
     /**
      * TODO: initialize the AESD specific portion of the device
      */
@@ -251,6 +254,8 @@ int aesd_init_module(void)
 
 void aesd_cleanup_module(void)
 {
+    uint8_t index;
+    struct aesd_buffer_entry *entry;
     dev_t devno = MKDEV(aesd_major, aesd_minor);
 
     cdev_del(&aesd_device.cdev);
@@ -258,6 +263,10 @@ void aesd_cleanup_module(void)
     /**
      * TODO: cleanup AESD specific poritions here as necessary
      */
+
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &aesd_device.aesd_circular_buffer, index) {
+      kfree(entry->buffptr);
+    }
     mutex_destroy(&aesd_device.lock);
 
     unregister_chrdev_region(devno, 1);
