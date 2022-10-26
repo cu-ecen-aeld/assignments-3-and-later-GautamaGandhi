@@ -30,16 +30,24 @@
 #define INITIAL_BUFFER_SIZE 1024 // Buffer size for receive and storage buffers
 #define WRITE_BUFFER_SIZE 512 // Write buffer size
 
+// A8 build switch
+#define USE_AESD_CHAR_DEVICE 1 // Comment for normal AESD socket working
+
 /**** Global Variables ****/
 int socketfd; // Socket File Descriptor
-int testfile_fd; // Testfile File Descriptor
+// int testfile_fd; // Testfile File Descriptor
+#ifndef USE_AESD_CHAR_DEVICE
 timer_t timer; // Timer used to get timestamp
 pthread_mutex_t mutex; // Mutex to be used when 
+#endif
+// pthread_mutex_t mutex; // Mutex to be used when 
 int complete_execution = 0; // Execution flag that is set when SIGTERM or SIGINT is received 
 
+#ifndef USE_AESD_CHAR_DEVICE
 /**** Function Declarations ****/
 static int create_timer();
 static void write_timestamp();
+#endif
 
 // Signal handler for SIGINT, SIGTERM and SIGALRM signals
 void sig_handler(int signum)
@@ -47,9 +55,12 @@ void sig_handler(int signum)
     if (signum == SIGINT || signum == SIGTERM) {
         complete_execution = 1;
     }
+
+    #ifndef USE_AESD_CHAR_DEVICE
     if (signum == SIGALRM) {
         write_timestamp();
     }
+    #endif
 }
 
 // Cleanup and EXIT function invoked when SIGTERM or SIGINT is received
@@ -61,23 +72,23 @@ void cleanup_and_exit()
         syslog(LOG_ERR, "Unable to close socket FD with error %d", errno);
     }
 
-    // Closing testfile FD
-    status = close(testfile_fd);
-    if (status == -1) {
-        syslog(LOG_ERR, "Unable to close testfile FD with error %d", errno);
-    }
-
+    #ifndef USE_AESD_CHAR_DEVICE
     // Unlinking file
     unlink("/var/tmp/aesdsocketdata");
     if (status == -1) {
         syslog(LOG_ERR, "Unable to unlink aesdsocketdata file with error %d", errno);
     }
+    #endif
 
+    #ifndef USE_AESD_CHAR_DEVICE
     // Destroying mutex
     pthread_mutex_destroy(&mutex);
+    #endif
 
+    #ifndef USE_AESD_CHAR_DEVICE
     // Deleting timer
     timer_delete(timer);
+    #endif
 
     closelog();
     exit(EXIT_SUCCESS);
@@ -105,11 +116,13 @@ int signal_initializer()
         exit(EXIT_FAILURE);
     }
 
+    #ifndef USE_AESD_CHAR_DEVICE
     if (sigaction(SIGALRM, &act, NULL) == -1)
     {
         perror("sigaction");
         exit(EXIT_FAILURE);
     }
+    #endif
 
     return EXIT_SUCCESS;
 }
@@ -267,15 +280,27 @@ void* threadfunc(void* thread_param)
 
         packet_complete_flag = 0;
 
+        #ifndef USE_AESD_CHAR_DEVICE
         int ret = pthread_mutex_lock(&mutex);
         if (ret != 0) {
             perror("Mutex Lock");
         }
+        #endif
+
+        #ifdef USE_AESD_CHAR_DEVICE
+        char *filename = "/dev/aesdchar";
+        #else
+        char *filename = "/var/tmp/aesdsocketdata";
+        #endif
+
         //Writing to file
-        int nr = write(testfile_fd, storage_buffer, bytes_to_write);
+        int new_testfile_fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+        int nr = write(new_testfile_fd, storage_buffer, bytes_to_write);
         file_size += nr; // Adding to current file length
 
+        #ifndef USE_AESD_CHAR_DEVICE
         lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
+        #endif
 
         // Buffered read and send operation for 
         char *read_buffer = NULL;
@@ -297,7 +322,7 @@ void* threadfunc(void* thread_param)
         ssize_t bytes_read;
         int bytes_sent;
 
-        while ((bytes_read = read(testfile_fd, read_buffer, read_buffer_size)) > 0) {
+        while ((bytes_read = read(new_testfile_fd, read_buffer, read_buffer_size)) > 0) {
             // bytes_sent is return value from send function
             bytes_sent = send(thread_local_vars->connection_fd, read_buffer, bytes_read, 0);
 
@@ -312,14 +337,17 @@ void* threadfunc(void* thread_param)
         if (bytes_read == -1)
             perror("read");
 
+        close(new_testfile_fd);
         // Freeing read_buffer
         free(read_buffer);
 
+        #ifndef USE_AESD_CHAR_DEVICE
         ret = pthread_mutex_unlock(&mutex);
 
         if (ret != 0) {
             perror("Mutex Unlock");
         }
+        #endif
     }
 
     // Cleanup of storage buffer, connection_fd and setting complete flag to 1
@@ -422,19 +450,29 @@ int main(int argc, char **argv)
 
     socklen_t addr_size = sizeof test_addr;
 
+    // #ifdef USE_AESD_CHAR_DEVICE
+    // char *filename = "/dev/aesdchar";
+    // #else
+    // char *filename = "/var/tmp/aesdsocketdata";
+    // #endif
+
     // /var/tmp/aesdsocketdata operations
     // Opening the file specified by filepath with the following flags and allowing the permissions: u=rw,g=rw,o=r
-    testfile_fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+    // testfile_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
 
     // In case of an error opening the file
-    if (testfile_fd == -1) {
-        syslog(LOG_ERR, "Error opening file with error: %d", errno);
-    } 
+    // if (testfile_fd == -1) {
+    //     syslog(LOG_ERR, "Error opening file with error: %d", errno);
+    // } 
 
+    #ifndef USE_AESD_CHAR_DEVICE
     // Starting timer
     create_timer();
+    #endif
 
+    #ifndef USE_AESD_CHAR_DEVICE
     pthread_mutex_init(&mutex, NULL);
+    #endif
 
     // Creating head, current and previous nodes for linked list insertion and traversal
     node_t *head = NULL;
@@ -519,6 +557,7 @@ int main(int argc, char **argv)
           TIMER CODE
  ************************************************/
 // Function to write timestamp value to file
+#ifndef USE_AESD_CHAR_DEVICE
 static void write_timestamp()
 {
     time_t timestamp;
@@ -536,6 +575,15 @@ static void write_timestamp()
     lseek(testfile_fd, 0, SEEK_END);
 
     pthread_mutex_lock(&mutex);
+
+
+    int testfile_fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+
+    // Error case
+    if (testfile_fd == -1) {
+        syslog(LOG_ERR, "Error opening file with error: %d", errno);
+    } 
+
     int nr = write(testfile_fd, write_buffer, strlen(write_buffer));
     if (nr == -1) {
         perror("write");
@@ -571,3 +619,4 @@ static int create_timer()
 
     return EXIT_SUCCESS;
 }
+#endif

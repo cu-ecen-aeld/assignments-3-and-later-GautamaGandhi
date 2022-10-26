@@ -43,7 +43,13 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     // Variable to hold total size in bytes of all buffers present
     int total_byte_size = 0;
-    for (int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
+
+    int i = 0;
+
+    // Read_ptr variable to store buffer's current read pointer
+    uint8_t read_ptr = buffer->out_offs;
+
+    for (i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
         total_byte_size += buffer->entry[i].size;
     }
 
@@ -52,10 +58,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
         return NULL;
     }
 
-    // Read_ptr variable to store buffer's current read pointer
-    uint8_t read_ptr = buffer->out_offs;
-
-    for (int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
+    for (i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
         // Decrement temp_offset by the size of current buffer entry at read_ptr
         temp_offset -= buffer->entry[read_ptr].size;
         // Check if temp_offset is less than 0 to determine if corresponding byte and buffer entry are found
@@ -82,15 +85,18 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
     /**
     * TODO: implement per description
     */
 
+    char *ret_ptr = NULL;
+
     // Increment buffer's read pointer if the buffer->full flag is set
     if (buffer->full) {
         buffer->out_offs = nextPtr(buffer->out_offs);
+        ret_ptr = (char *)buffer->entry[buffer->in_offs].buffptr;
     }
 
     // Adding buffer pointer and buffer size
@@ -103,6 +109,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     if (buffer->in_offs == buffer->out_offs) {
         buffer->full = true;
     }
+    return ret_ptr;
 }
 
 /**
