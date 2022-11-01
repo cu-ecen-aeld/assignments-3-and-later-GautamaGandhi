@@ -18,6 +18,7 @@
 #include <linux/cdev.h>
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 #include "linux/slab.h"
 #include "linux/string.h"
 int aesd_major =   0; // use dynamic major
@@ -42,6 +43,50 @@ int aesd_open(struct inode *inode, struct file *filp)
     return 0;
 }
 
+static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, unsigned int write_cmd_offset)
+{
+    int ret = 0;
+
+    int temp_fpos;
+
+    int i;
+
+    struct aesd_dev *dev = filp->private_data;
+
+    if (mutex_lock_interruptible(&aesd_device.lock)) {
+        ret = -ERESTARTSYS;
+        goto out;
+    }
+
+    // Check if valid write command
+    if (write_cmd > (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1)) {
+        ret = -EINVAL;
+        goto free;
+    }
+
+    if (write_cmd_offset >= dev->aesd_circular_buffer.entry[write_cmd].size) {
+        ret = -EINVAL;
+        goto free;
+    }
+
+    temp_fpos = 0;
+
+    for (i = 0; i < write_cmd; i++) {
+        if (dev->aesd_circular_buffer.entry[i].size == 0) {
+            ret = -EINVAL;
+            goto free;
+        }
+        temp_fpos += dev->aesd_circular_buffer.entry[i].size; 
+    }
+
+    temp_fpos += write_cmd_offset;
+
+    filp->f_pos = temp_fpos;
+
+    free: mutex_unlock(&aesd_device.lock);
+    out: return ret;
+}
+
 int aesd_release(struct inode *inode, struct file *filp)
 {
     PDEBUG("release");
@@ -50,6 +95,53 @@ int aesd_release(struct inode *inode, struct file *filp)
      */
     return 0;
 }
+
+loff_t aesd_llseek(struct file *filp, loff_t off, int whence)
+{
+    loff_t ret;
+    struct aesd_dev *dev = filp->private_data;
+
+    if (mutex_lock_interruptible(&aesd_device.lock)) {
+        ret = -ERESTARTSYS;
+        goto out;
+    }
+
+    ret = fixed_size_llseek(filp, off, whence, dev->aesd_circular_buffer.total_buffer_size);
+    PDEBUG("Return Value from LSEEK is %lld", ret);
+
+    mutex_unlock(&aesd_device.lock);
+
+    out: return ret;
+}
+
+long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) 
+{
+    long ret = 0;
+
+    struct aesd_seekto seekto;
+    /*
+	 * extract the type and number bitfields, and don't decode
+	 * wrong cmds: return ENOTTY (inappropriate ioctl) before access_ok()
+	 */
+	if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) return -ENOTTY;
+	if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) return -ENOTTY;
+
+    switch(cmd) {
+        case AESDCHAR_IOCSEEKTO:
+            if (copy_from_user(&seekto, (const void __user *)arg, sizeof(seekto)) != 0 ) {
+                ret = -EFAULT;
+            } else {
+                ret = aesd_adjust_file_offset(filp, seekto.write_cmd, seekto.write_cmd_offset);
+            }
+            break;
+        default: 
+            ret = -ENOTTY;
+            break;
+    }
+
+    return ret;
+}
+
 
 /**
  * filp -> File pointer to get aesd_dev
@@ -207,6 +299,8 @@ struct file_operations aesd_fops = {
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+    .llseek =   aesd_llseek,
+    .unlocked_ioctl = aesd_ioctl,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)

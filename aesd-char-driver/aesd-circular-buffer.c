@@ -96,12 +96,14 @@ char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const 
     // Increment buffer's read pointer if the buffer->full flag is set
     if (buffer->full) {
         buffer->out_offs = nextPtr(buffer->out_offs);
+        buffer->total_buffer_size -= buffer->entry[buffer->in_offs].size;
         ret_ptr = (char *)buffer->entry[buffer->in_offs].buffptr;
     }
 
     // Adding buffer pointer and buffer size
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size = add_entry->size;
+    buffer->total_buffer_size += add_entry->size;
 
     buffer->in_offs = nextPtr(buffer->in_offs);
 
