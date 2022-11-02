@@ -50,7 +50,7 @@ struct aesd_circular_buffer
      */
     bool full;
 
-    size_t total_buffer_size;
+    size_t total_buffer_size; // Compute current size of circular buffer
 };
 
 extern struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,

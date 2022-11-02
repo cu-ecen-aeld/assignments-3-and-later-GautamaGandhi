@@ -64,6 +64,7 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
         goto free;
     }
 
+    // Check for valid range of write_cmd_offset
     if (write_cmd_offset >= dev->aesd_circular_buffer.entry[write_cmd].size) {
         ret = -EINVAL;
         goto free;
@@ -71,7 +72,9 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
 
     temp_fpos = 0;
 
+    // Iterating over all circular buffer entries until the write_cmd entry 
     for (i = 0; i < write_cmd; i++) {
+        // Check if any buffer entry is empty and return INVALID
         if (dev->aesd_circular_buffer.entry[i].size == 0) {
             ret = -EINVAL;
             goto free;
@@ -79,6 +82,7 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
         temp_fpos += dev->aesd_circular_buffer.entry[i].size; 
     }
 
+    // Incrementing temp_fpos by cmd_offset and assigning to f_pos
     temp_fpos += write_cmd_offset;
 
     filp->f_pos = temp_fpos;
@@ -96,6 +100,7 @@ int aesd_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
+// llseek function based on requirements; makes a call to fixed_size_llseek
 loff_t aesd_llseek(struct file *filp, loff_t off, int whence)
 {
     loff_t ret;
@@ -114,6 +119,7 @@ loff_t aesd_llseek(struct file *filp, loff_t off, int whence)
     out: return ret;
 }
 
+// ioctl function implementation based on assignment overview
 long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) 
 {
     long ret = 0;
@@ -162,13 +168,18 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
 
-    mutex_lock(&aesd_device.lock);
+    // mutex_lock(&aesd_device.lock);
+
+    if (mutex_lock_interruptible(&aesd_device.lock)) {
+        retval = -ERESTARTSYS;
+        goto out;
+    }
 
     temp_buffer = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->aesd_circular_buffer, *f_pos, &offset_byte_pos);
 
     if (temp_buffer == NULL) {
         *f_pos = 0;
-        goto out;
+        goto free;
     }
     
     if ((temp_buffer->size - offset_byte_pos) < count) {
@@ -181,16 +192,16 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     if (copy_to_user(buf, temp_buffer->buffptr+offset_byte_pos, temp_buffer_count)) {
 		retval = -EFAULT;
-		goto out;
+		goto free;
 	}
 
     retval = temp_buffer_count;
     /**
      * TODO: handle read
      */
-    out: mutex_unlock(&aesd_device.lock);
+    free: mutex_unlock(&aesd_device.lock);
 
-    PDEBUG("Return Value %ld", retval);
+    out: PDEBUG("Return Value %ld", retval);
 
     return retval;
 }
@@ -215,14 +226,14 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     dev = filp->private_data;
 
-    mutex_lock(&aesd_device.lock);
-
     // Mallocing into local buffer
     temp_buffer = (char *)kmalloc(count, GFP_KERNEL);
     if (temp_buffer == NULL) {
         retval = -ENOMEM;
         goto out;
     }
+
+    mutex_lock(&aesd_device.lock);
         
     // Copying from userspace to kernel space
     if (copy_from_user(temp_buffer, buf, count)) {
