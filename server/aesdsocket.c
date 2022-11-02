@@ -24,6 +24,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/time.h>
+#include "aesd_ioctl.h"
 
 /**** DEFINES ****/
 #define BACKLOG 10 // Setting 10 as the connection request limit while listening
@@ -176,6 +177,9 @@ void ll_insert(node_t **head_ref, node_t *node)
     *head_ref = node;
 }
 
+// Const string used for comparison and check if ioctl command
+const char *aesd_ioctl_str =  "AESDCHAR_IOCSEEKTO:";
+
 /************************************************
           THREAD FUNCTION
  ************************************************/
@@ -295,8 +299,31 @@ void* threadfunc(void* thread_param)
 
         //Writing to file
         int new_testfile_fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
-        int nr = write(new_testfile_fd, storage_buffer, bytes_to_write);
+
+        int nr = 0;
+
+        // Added case for IOCTL command
+        if (strncmp(storage_buffer, aesd_ioctl_str, strlen(aesd_ioctl_str)) == 0) {
+
+            struct aesd_seekto seekto;
+
+            // Using sscanf to divide string and store values for write command and write command offset
+            sscanf(storage_buffer, "AESDCHAR_IOCSEEKTO:%d,%d", &seekto.write_cmd, &seekto.write_cmd_offset);
+
+            // Calling ioctl on new_testfile_fd with AESDCHAR_IOCSEEKTO command
+            if(ioctl(new_testfile_fd, AESDCHAR_IOCSEEKTO, &seekto)) {
+                syslog(LOG_ERR, "Error in IOCTL, errno is %d\n", errno);
+            }
+        }
+        // Normal write operation if "AESDCHAR_IOCSEEKTO" is not present
+        else {
+
+            nr = write(new_testfile_fd, storage_buffer, bytes_to_write);
+            
+        }
+        
         file_size += nr; // Adding to current file length
+        
 
         #ifndef USE_AESD_CHAR_DEVICE
         lseek(testfile_fd, 0, SEEK_SET); // Setting the FD to start of file
@@ -307,13 +334,8 @@ void* threadfunc(void* thread_param)
 
         int read_buffer_size;
 
-        if (file_size < WRITE_BUFFER_SIZE) {
-            read_buffer = (char *)malloc(file_size);
-            read_buffer_size = file_size;
-        } else {
-            read_buffer = (char *)malloc(WRITE_BUFFER_SIZE);
-            read_buffer_size = WRITE_BUFFER_SIZE;
-        }
+        read_buffer = (char *)malloc(WRITE_BUFFER_SIZE);
+        read_buffer_size = WRITE_BUFFER_SIZE;
 
         if (read_buffer == NULL) {
             printf("Unable to allocate memory to read_buffer\n");
